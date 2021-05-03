@@ -2,6 +2,7 @@ from enum import Enum
 import random
 import copy
 from typing import List, Tuple
+import math
 
 
 class State(Enum):
@@ -85,12 +86,11 @@ class Grid:
                     raise
 
 
-
     def get_unknown_coords(self) -> List[Tuple[int, int]]:
         result = []
         for row_num, row in enumerate(self.grid):
             result += ((row_num, col_num) for col_num, col in enumerate(row) if col == State.UNKNOWN)
-        return result
+        return sorted(result, key=lambda x: self.dist(x, (self.nRows / 2, self.nCols / 2)), reverse=True)
 
     def getRow(self, row_num: int):
         return self.grid[row_num].copy()
@@ -106,6 +106,9 @@ class Grid:
             self.grid[i][col_num] = x
 
     def solveRow(self, row: List[State], clues: List[int], fill_color: State) -> Tuple[List[State], bool]:
+        if not clues:
+            return row, False
+
         x_color = State.RED if fill_color == State.BLUE else State.BLUE
         dirty = False
 
@@ -114,6 +117,7 @@ class Grid:
             nonlocal dirty
             left = next(i for i, x in enumerate(row) if x != x_color)
             right = len(row) - next(i for i, x in enumerate(reversed(row)) if x != x_color)
+
             for clue in clues[:clue_index]:
                 while any(x == x_color for x in row[left:left+clue]):
                     left += 1
@@ -126,8 +130,20 @@ class Grid:
 
             clue = clues[clue_index]
             while any(x == x_color for x in row[left:left+clue]):
+                if clue_index == 0:
+                    if row[left] == State.UNKNOWN:
+                        dirty = True
+                        row[left] = x_color
+                    elif row[left] == fill_color:
+                        raise ContradictionException
                 left += 1
             while any(x == x_color for x in row[right - clue:right]):
+                if clue_index == len(clues) - 1 and row[right-1] != x_color:
+                    if row[right-1] == State.UNKNOWN:
+                        dirty = True
+                        row[right - 1] = x_color
+                    elif row[right-1] == fill_color:
+                        raise ContradictionException
                 right -= 1
 
 
@@ -153,6 +169,26 @@ class Grid:
                     dirty = True
                     row[left+e:right-e] = new_fill
 
+        try:
+            left = next(i for i, x in enumerate(row) if x != x_color)
+        except StopIteration:
+            pass
+        else:
+            if row[left:clues[0]] == [fill_color] * clues[0]:
+                internal, internal_dirty = self.solveRow(row[left+clues[0]:], clues[1:], fill_color)
+                dirty |= internal_dirty
+                return row[:left+clues[0]] + internal, dirty
+
+        try:
+            right = len(row) - next(i for i, x in enumerate(reversed(row)) if x != x_color)
+        except StopIteration:
+            pass
+        else:
+            if row[right-clues[-1]:right] == [fill_color] * clues[-1]:
+                internal, internal_dirty = self.solveRow(row[:right-clues[-1]], clues[:-1], fill_color)
+                dirty |= internal_dirty
+                return internal + row[right-clues[-1]:], dirty
+
         for i in range(len(clues)):
             helper(i)
 
@@ -166,20 +202,6 @@ class Grid:
                 clues.append(list(map(int, line.strip().split())))
         return clues
 
-if __name__ == '__main__':
-    puzzle_num = int(input('Puzzle Number: '))
-    row_file = f'rows_{puzzle_num}'
-    col_file = f'cols_{puzzle_num}'
-
-    # Read row hints
-    row_clues = []
-    with open(row_file, 'r') as f:
-        for line in f:
-            row_clues.append(list(map(int, line.strip().split())))
-
-    # Read col hints
-    col_clues = []
-    with open(col_file, 'r') as f:
-        for line in f:
-            col_clues.append(list(map(int, line.strip().split())))
-
+    @staticmethod
+    def dist(x, y):
+        return math.sqrt((x[0]-y[0])**2 + (x[1]-y[1])**2)
